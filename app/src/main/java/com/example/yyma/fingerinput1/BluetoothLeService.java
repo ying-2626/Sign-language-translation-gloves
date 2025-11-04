@@ -89,6 +89,8 @@ public class BluetoothLeService extends Service {
                 broadcastUpdate(ACTION_GATT_SERVICES_DISCOVERED);
             } else {
                 Log.w(TAG, "onServicesDiscovered received: " + status);
+                // 即使服务发现失败，也发送广播，让用户界面可以处理
+                broadcastUpdate(ACTION_GATT_SERVICES_DISCOVERED);
             }
         }
 
@@ -321,8 +323,13 @@ public class BluetoothLeService extends Service {
                 || UUID_CUSTOM_CHARACTERISTIC.equals(characteristic.getUuid())) { // 添加对自定义特征值的支持
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
                     UUID.fromString(SampleGattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
-            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-            mBluetoothGatt.writeDescriptor(descriptor);
+            // 检查descriptor是否为null
+            if (descriptor != null) {
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                mBluetoothGatt.writeDescriptor(descriptor);
+            } else {
+                Log.w(TAG, "Descriptor is null for characteristic: " + characteristic.getUuid().toString());
+            }
         }
     }
 

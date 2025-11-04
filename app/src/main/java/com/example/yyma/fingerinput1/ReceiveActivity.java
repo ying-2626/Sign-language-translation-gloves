@@ -155,54 +155,34 @@ public class ReceiveActivity extends Activity {
                 characteristicRX = characteristicTX;
 
                 if (characteristicTX != null) {
-                    mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-
-                    isSerial.setText("连接就绪");
-                    updateReadyState(0);
+                    // 在设置通知前检查特征值是否有效
+                    if (characteristicTX != null) {
+                        mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                        isSerial.setText("连接就绪");
+                        updateReadyState(0);
+                    } else {
+                        isSerial.setText("连接失败");
+                        Toast.makeText(ReceiveActivity.this, "特征值无效", Toast.LENGTH_SHORT).show();
+                    }
                 } else {
                     isSerial.setText("连接失败");
                     Toast.makeText(ReceiveActivity.this, "未找到可用的通信特征值", Toast.LENGTH_SHORT).show();
                 }
 
             } else if (BluetoothLeService.ACTION_DATA_AVAILABLE.equals(action)) {
+                // 添加标记方便筛选日志
+                Log.d("BLUETOOTH_DATA", "Received data from Bluetooth device");
+                String receivedData = intent.getStringExtra(mBluetoothLeService.EXTRA_DATA);
+                Log.d("BLUETOOTH_DATA", "Data content: " + receivedData);
+                Toast.makeText(ReceiveActivity.this, "收到蓝牙消息: " + receivedData, Toast.LENGTH_SHORT).show();
 
-                displayData(intent.getStringExtra(mBluetoothLeService.EXTRA_DATA));
-                Thread mThread = new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if(timer==null) {
-                            timer = new Timer();
-                            TimerTask task = new TimerTask() {
-                                public void run() {
-                                    //Thread tThread = new Thread(new Runnable() {
-                                       // @Override
-                                       // public void run() {
-                                            if(loadComplete && sentence != null) {
-                                                //transferBuffer.deleteCharAt(transferBuffer.length() - 1);
-                                                System.out.println(transferBuffer.toString());
-                                                sentence.redim(transferBuffer.toString());
-                                                sentence.transfer();
-                                                System.out.println("Translate Completed");
-                                                runOnUiThread(new Runnable() {
-                                                    @Override
-                                                    public void run() {
-                                                        returnText.append(sentence.getRet());
-                                                    }
-                                                });
-                                                transferBuffer.setLength(0);
-                                           // }
-                                       // }
-                                    }//);
-                                    //tThread.start();
-                                    System.out.println(4);
-                                }
-                            };
-                            timer.schedule(task, 3000);
-                            System.out.println(3);
-                        }else {
-                            if (timer != null) {
-                                timer.cancel();
-                                timer = null;
+                // 确保receivedData不为null再处理
+                if (receivedData != null) {
+                    displayData(receivedData);
+                    Thread mThread = new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if(timer==null) {
                                 timer = new Timer();
                                 TimerTask task = new TimerTask() {
                                     public void run() {
@@ -211,15 +191,14 @@ public class ReceiveActivity extends Activity {
                                            // public void run() {
                                                 if(loadComplete && sentence != null) {
                                                     //transferBuffer.deleteCharAt(transferBuffer.length() - 1);
-                                                    System.out.println("trb: "+transferBuffer.toString());
+                                                    System.out.println(transferBuffer.toString());
                                                     sentence.redim(transferBuffer.toString());
                                                     sentence.transfer();
-                                                    System.out.println(sentence.getRet());
+                                                    System.out.println("Translate Completed");
                                                     runOnUiThread(new Runnable() {
                                                         @Override
                                                         public void run() {
-                                                            returnText.append(transferBuffer+" :\n");
-                                                            returnText.append(sentence.getRet()+"\n");
+                                                            returnText.append(sentence.getRet());
                                                         }
                                                     });
                                                     transferBuffer.setLength(0);
@@ -227,14 +206,50 @@ public class ReceiveActivity extends Activity {
                                            // }
                                         }//);
                                         //tThread.start();
+                                        System.out.println(4);
                                     }
                                 };
                                 timer.schedule(task, 3000);
+                                System.out.println(3);
+                            }else {
+                                if (timer != null) {
+                                    timer.cancel();
+                                    timer = null;
+                                    timer = new Timer();
+                                    TimerTask task = new TimerTask() {
+                                        public void run() {
+                                            //Thread tThread = new Thread(new Runnable() {
+                                               // @Override
+                                               // public void run() {
+                                                    if(loadComplete && sentence != null) {
+                                                        //transferBuffer.deleteCharAt(transferBuffer.length() - 1);
+                                                        System.out.println("trb: "+transferBuffer.toString());
+                                                        sentence.redim(transferBuffer.toString());
+                                                        sentence.transfer();
+                                                        System.out.println(sentence.getRet());
+                                                        runOnUiThread(new Runnable() {
+                                                            @Override
+                                                            public void run() {
+                                                                returnText.append(transferBuffer+" :\n");
+                                                                returnText.append(sentence.getRet()+"\n");
+                                                            }
+                                                        });
+                                                        transferBuffer.setLength(0);
+                                                   // }
+                                               // }
+                                            }//);
+                                            //tThread.start();
+                                        }
+                                    };
+                                    timer.schedule(task, 3000);
+                                }
                             }
                         }
-                    }
-                });
-                mThread.start();
+                    });
+                    mThread.start();
+                } else {
+                    Log.w("BLUETOOTH_DATA", "Received null data from Bluetooth device");
+                }
             }
         }
         
@@ -261,9 +276,11 @@ public class ReceiveActivity extends Activity {
                         Log.d(TAG, "Found custom characteristic: " + characteristicTX.getUuid().toString());
                         
                         // 设置通知
-                        mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-                        isSerial.setText("连接就绪");
-                        updateReadyState(0);
+                        if (characteristicTX != null) {
+                            mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                            isSerial.setText("连接就绪");
+                            updateReadyState(0);
+                        }
                         return;
                     }
                 }
@@ -279,9 +296,11 @@ public class ReceiveActivity extends Activity {
                     Log.d(TAG, "Found characteristic: " + characteristicTX.getUuid().toString());
                     
                     // 设置通知
-                    mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-                    isSerial.setText("连接就绪");
-                    updateReadyState(0);
+                    if (characteristicTX != null) {
+                        mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                        isSerial.setText("连接就绪");
+                        updateReadyState(0);
+                    }
                     return;
                 }
             }
@@ -467,7 +486,7 @@ public class ReceiveActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                // 使用Handler替代Thread.sleep避免阻塞UI线程
+                wait_ble(2000);
                 characteristicReady = true;
             }
         });
@@ -507,38 +526,64 @@ public class ReceiveActivity extends Activity {
     }
 
     private void soundPlay(String info) {
+        // 确保info不为null
+        if (info == null) {
+            Log.w(TAG, "soundPlay received null info");
+            return;
+        }
+        
+        Log.d(TAG, "soundPlay called with info: " + info);
+        
         String path = info.replace(" ","");
-        char lastOne;
-        path = path.substring(0,path.length()-2);
-        lastOne = path.charAt(path.length()-1);
-        if (lastOne == '1' || lastOne == '2' || lastOne == '3' || lastOne == '4' || lastOne == '5'){
-            try {
-                // 检查player是否已经初始化
-                if (player == null) {
-                    player = new MediaPlayer();
-                } else {
-                    // 重置player状态
-                    player.reset();
+        // 对于"ba1"这样的数据，我们需要提取中间的部分作为文件名
+        // 移除最后两个字符(\r\n)，然后提取有效的文件名
+        if (path.length() >= 3) {  // 确保有足够的字符
+            // 提取类似"ba1"中的"ba1"部分
+            path = path.substring(0, path.length()-2); // 移除\r\n
+            
+            // 检查是否以数字结尾
+            char lastChar = path.charAt(path.length() - 1);
+            if (lastChar >= '1' && lastChar <= '5') {
+                try {
+                    // 获取资源ID
+                    int audioResourceId = getResources().getIdentifier(path, "raw", getPackageName());
+                    
+                    // 检查资源是否存在
+                    if (audioResourceId == 0) {
+                        Log.w(TAG, "音频资源不存在: " + path);
+                        Toast.makeText(this, "音频资源不存在: " + path, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    
+                    Log.d(TAG, "Found audio resource ID: " + audioResourceId);
+                    
+                    // 使用MediaPlayer.create()方法创建并准备音频播放
+                    MediaPlayer mediaPlayer = MediaPlayer.create(this, audioResourceId);
+                    if (mediaPlayer != null) {
+                        mediaPlayer.start();
+                        Log.d(TAG, "Started playing audio: " + path);
+                        
+                        // 设置播放完成监听器以释放资源
+                        mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                            @Override
+                            public void onCompletion(MediaPlayer mp) {
+                                mp.release();
+                                Log.d(TAG, "Released MediaPlayer resources");
+                            }
+                        });
+                    } else {
+                        Log.e(TAG, "Failed to create MediaPlayer for: " + path);
+                        Toast.makeText(this, "无法创建音频播放器: " + path, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "播放音频失败: " + e.getMessage());
+                    Toast.makeText(this, "播放音频失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
-                
-                // 获取资源ID
-                int audioResourceId = getResources().getIdentifier(path, "raw", getPackageName());
-                
-                // 检查资源是否存在
-                if (audioResourceId == 0) {
-                    Log.w(TAG, "音频资源不存在: " + path);
-                    return;
-                }
-                
-                // 设置音频源并播放
-                player.setDataSource(getApplicationContext(), android.net.Uri.parse("android.resource://" + getPackageName() + "/" + audioResourceId));
-                player.prepare();
-                player.start();
-            } catch (IOException e) {
-                Log.e(TAG, "播放音频失败: " + e.getMessage());
-            } catch (Exception e) {
-                Log.e(TAG, "播放音频失败: " + e.getMessage());
+            } else {
+                Log.d(TAG, "Skipping audio play, last character is not 1-5: " + lastChar);
             }
+        } else {
+            Log.d(TAG, "Skipping audio play, data too short: " + path);
         }
     }
 
