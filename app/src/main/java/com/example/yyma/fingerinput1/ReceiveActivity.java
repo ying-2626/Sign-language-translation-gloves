@@ -538,8 +538,10 @@ public class ReceiveActivity extends Activity {
         // 对于"ba1"这样的数据，我们需要提取中间的部分作为文件名
         // 移除最后两个字符(\r\n)，然后提取有效的文件名
         if (path.length() >= 3) {  // 确保有足够的字符
-            // 提取类似"ba1"中的"ba1"部分
-            path = path.substring(0, path.length()-2); // 移除\r\n
+            // 移除\r\n
+            if (path.endsWith("\r\n")) {
+                path = path.substring(0, path.length()-2);
+            }
             
             // 检查是否以数字结尾
             char lastChar = path.charAt(path.length() - 1);
@@ -557,17 +559,31 @@ public class ReceiveActivity extends Activity {
                     
                     Log.d(TAG, "Found audio resource ID: " + audioResourceId);
                     
-                    // 使用MediaPlayer.create()方法创建并准备音频播放
-                    MediaPlayer mediaPlayer = MediaPlayer.create(this, audioResourceId);
-                    if (mediaPlayer != null) {
-                        mediaPlayer.start();
+                    // 停止当前正在播放的音频（如果有）
+                    if (player != null) {
+                        try {
+                            player.stop();
+                            player.release();
+                        } catch (Exception e) {
+                            // 忽略异常
+                        }
+                    }
+                    
+                    // 创建新的MediaPlayer实例
+                    player = MediaPlayer.create(this, audioResourceId);
+                    if (player != null) {
+                        player.start();
                         Log.d(TAG, "Started playing audio: " + path);
                         
                         // 设置播放完成监听器以释放资源
-                        mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                        player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                             @Override
                             public void onCompletion(MediaPlayer mp) {
-                                mp.release();
+                                try {
+                                    mp.release();
+                                } catch (Exception e) {
+                                    // 忽略异常
+                                }
                                 Log.d(TAG, "Released MediaPlayer resources");
                             }
                         });
