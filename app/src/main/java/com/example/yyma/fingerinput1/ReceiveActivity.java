@@ -244,6 +244,7 @@ public class ReceiveActivity extends Activity {
 
         /**
          * 当无法找到标准服务时，尝试从所有服务中查找可用的特征值
+         * 优先匹配已知串口服务，跳过通用服务（如GAP/GATT/DeviceInfo）
          */
         private void findAnyUsableCharacteristic() {
             List<BluetoothGattService> services = mBluetoothLeService.getSupportedGattServices();
@@ -254,10 +255,58 @@ public class ReceiveActivity extends Activity {
 
             Log.d(TAG, "Searching for any usable characteristic in all services...");
 
-            // 遍历所有服务查找可用的特征值
+            // 首先尝试查找已知的串口服务
+            for (BluetoothGattService service : services) {
+                String serviceUUID = service.getUuid().toString();
+                
+                // 跳过通用服务（如GAP/GATT/DeviceInfo等）
+                if (isGeneralServiceUUID(serviceUUID)) {
+                    Log.d(TAG, "Skipping general service: " + serviceUUID);
+                    continue;
+                }
+                
+                // 优先匹配已知串口服务
+                if (isKnownSerialService(serviceUUID)) {
+                    Log.d(TAG, "Found known serial service: " + serviceUUID);
+                    
+                    List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
+                    if (characteristics != null && !characteristics.isEmpty()) {
+                        for (BluetoothGattCharacteristic characteristic : characteristics) {
+                            int properties = characteristic.getProperties();
+                            if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0 ||
+                                (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0 ||
+                                (properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0 ||
+                                (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
+                                (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                                // 找到了串口通信特征值
+                                characteristicTX = characteristic;
+                                characteristicRX = characteristicTX;
+                                Log.d(TAG, "Found serial characteristic: " + characteristicTX.getUuid().toString());
+
+                                // 设置通知
+                                if (characteristicTX != null) {
+                                    mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                                    isSerial.setText("连接就绪 - 服务: " + service.getUuid().toString());
+                                    updateReadyState(0);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 如果没找到已知串口服务，再遍历所有服务查找可用的特征值
             for (BluetoothGattService service : services) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
                 if (characteristics != null && !characteristics.isEmpty()) {
+                    String serviceUUID = service.getUuid().toString();
+                    
+                    // 跳过通用服务
+                    if (isGeneralServiceUUID(serviceUUID)) {
+                        continue;
+                    }
+                    
                     // 尝试找到合适的特征值
                     for (BluetoothGattCharacteristic characteristic : characteristics) {
                         int properties = characteristic.getProperties();
@@ -286,6 +335,33 @@ public class ReceiveActivity extends Activity {
             // 如果还是找不到特征值
             isSerial.setText("连接失败");
             Toast.makeText(ReceiveActivity.this, "未找到任何可用的特征值", Toast.LENGTH_SHORT).show();
+        }
+        
+        /**
+         * 检查是否为通用服务UUID（如GAP/GATT/DeviceInfo等）
+         */
+        private boolean isGeneralServiceUUID(String uuid) {
+            // 通用服务UUID通常以000018开头，如00001800-0000-1000-8000-00805f9b34fb (Device Information)
+            // 以及其他常见的通用服务
+            return uuid.equals("00001800-0000-1000-8000-00805f9b34fb") ||  // Generic Access
+                   uuid.equals("00001801-0000-1000-8000-00805f9b34fb") ||  // Generic Attribute
+                   uuid.equals("0000180a-0000-1000-8000-00805f9b34fb") ||  // Device Information
+                   uuid.equals("0000180f-0000-1000-8000-00805f9b34fb") ||  // Battery Service
+                   uuid.equals("00001805-0000-1000-8000-00805f9b34fb") ||  // Current Time Service
+                   uuid.equals("00001803-0000-1000-8000-00805f9b34fb") ||  // Link Loss
+                   uuid.equals("00001802-0000-1000-8000-00805f9b34fb") ||  // Immediate Alert
+                   uuid.equals("00001804-0000-1000-8000-00805f9b34fb");    // Tx Power
+        }
+        
+        /**
+         * 检查是否为已知的串口服务
+         */
+        private boolean isKnownSerialService(String uuid) {
+            return uuid.equals(SampleGattAttributes.SPP_SERIAL_SERVICE) ||
+                   uuid.equals(SampleGattAttributes.SOFT_SERIAL_SERVICE) ||
+                   uuid.equals(SampleGattAttributes.CUSTOM_SERVICE) ||
+                   uuid.equals(SampleGattAttributes.MD_RX_TX) ||
+                   uuid.equals(SampleGattAttributes.ETOH_RX_TX);
         }
     };
 

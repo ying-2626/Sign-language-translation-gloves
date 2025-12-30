@@ -10,11 +10,8 @@ public class SampleGattAttributes {
     public static String CLIENT_CHARACTERISTIC_CONFIG = "00002902-0000-1000-8000-00805f9b34fb";
     public static String SOFT_SERIAL_SERVICE = "0000fff0-0000-1000-8000-00805f9b34fb";
     public static String SPP_SERIAL_SERVICE = "00001101-0000-1000-8000-00805f9b34fb"; // 标准SPP服务UUID
-
-    // 保留一些常用的UUID定义，但主要依赖动态发现
     public static String CUSTOM_SERVICE = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"; // 备选UUID
     public static String CUSTOM_CHARACTERISTIC = "beb5483e-36e1-4688-b7f5-ea07361b26a8"; // 备选UUID
-
     public static String MD_RX_TX = "0000fff6-0000-1000-8000-00805f9b34fb";
     public static String ETOH_RX_TX = "0000fff1-0000-1000-8000-00805f9b34fb";
 

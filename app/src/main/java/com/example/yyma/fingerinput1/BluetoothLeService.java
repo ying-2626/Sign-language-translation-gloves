@@ -72,8 +72,13 @@ public class BluetoothLeService extends Service {
                 
                 // 连接成功后，开始发现服务 - 这是关键步骤
                 // 设备会返回它支持的所有服务列表
-                Log.i(TAG, "Attempting to start service discovery:" +
-                        mBluetoothGatt.discoverServices());
+                try {
+                    Log.i(TAG, "Attempting to start service discovery:" +
+                            mBluetoothGatt.discoverServices());
+                } catch (SecurityException e) {
+                    Log.e(TAG, "Security exception during service discovery: " + e.getMessage());
+                    // 在Android 12+中，可能需要BLUETOOTH_CONNECT权限
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 intentAction = ACTION_GATT_DISCONNECTED;
                 mConnectionState = STATE_DISCONNECTED;
@@ -429,6 +434,7 @@ public class BluetoothLeService extends Service {
     /**
      * 尝试获取适合串口通信的服务
      * 这是软硬件协同的关键环节
+     * 优先匹配已知串口服务，跳过通用服务（如GAP/GATT/DeviceInfo）
      */
     public BluetoothGattService getSoftSerialService() {
         Log.d(TAG, "Starting service discovery process...");
@@ -452,8 +458,45 @@ public class BluetoothLeService extends Service {
         if (services != null) {
             Log.d(TAG, "Analyzing all available services for serial communication capability...");
             
+            // 首先查找已知的串口服务
             for (BluetoothGattService service : services) {
-                Log.d(TAG, "Checking service: " + service.getUuid().toString());
+                String serviceUUID = service.getUuid().toString();
+                
+                // 跳过通用服务（如GAP/GATT/DeviceInfo等）
+                if (isGeneralServiceUUID(serviceUUID)) {
+                    Log.d(TAG, "Skipping general service: " + serviceUUID);
+                    continue;
+                }
+                
+                // 优先匹配已知串口服务
+                if (isKnownSerialService(serviceUUID)) {
+                    Log.d(TAG, "Found known serial service: " + serviceUUID);
+                    
+                    // 检查该服务是否有适合串口通信的特征值
+                    List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
+                    for (BluetoothGattCharacteristic characteristic : characteristics) {
+                        Log.d(TAG, "  Checking characteristic: " + characteristic.getUuid().toString() + 
+                              ", Properties: " + analyzeCharacteristicProperties(characteristic.getProperties()));
+                        
+                        // 查找具有读写和通知能力的特征值 - 这是串口通信的关键
+                        if (isReadableOrWritableCharacteristic(characteristic)) {
+                            Log.d(TAG, "Found potential serial service with usable characteristic: " + service.getUuid().toString());
+                            return service;
+                        }
+                    }
+                }
+            }
+            
+            // 如果没找到已知串口服务，再遍历所有服务查找可能的串口服务
+            for (BluetoothGattService service : services) {
+                String serviceUUID = service.getUuid().toString();
+                
+                // 跳过通用服务
+                if (isGeneralServiceUUID(serviceUUID)) {
+                    continue;
+                }
+                
+                Log.d(TAG, "Checking service: " + serviceUUID);
                 
                 // 检查该服务是否有适合串口通信的特征值
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
@@ -472,6 +515,33 @@ public class BluetoothLeService extends Service {
         
         Log.d(TAG, "No suitable serial service found!");
         return null;
+    }
+    
+    /**
+     * 检查是否为通用服务UUID（如GAP/GATT/DeviceInfo等）
+     */
+    private boolean isGeneralServiceUUID(String uuid) {
+        // 通用服务UUID通常以000018开头，如00001800-0000-1000-8000-00805f9b34fb (Device Information)
+        // 以及其他常见的通用服务
+        return uuid.equals("00001800-0000-1000-8000-00805f9b34fb") ||  // Generic Access
+               uuid.equals("00001801-0000-1000-8000-00805f9b34fb") ||  // Generic Attribute
+               uuid.equals("0000180a-0000-1000-8000-00805f9b34fb") ||  // Device Information
+               uuid.equals("0000180f-0000-1000-8000-00805f9b34fb") ||  // Battery Service
+               uuid.equals("00001805-0000-1000-8000-00805f9b34fb") ||  // Current Time Service
+               uuid.equals("00001803-0000-1000-8000-00805f9b34fb") ||  // Link Loss
+               uuid.equals("00001802-0000-1000-8000-00805f9b34fb") ||  // Immediate Alert
+               uuid.equals("00001804-0000-1000-8000-00805f9b34fb");    // Tx Power
+    }
+    
+    /**
+     * 检查是否为已知的串口服务
+     */
+    private boolean isKnownSerialService(String uuid) {
+        return uuid.equals(SampleGattAttributes.SPP_SERIAL_SERVICE) ||
+               uuid.equals(SampleGattAttributes.SOFT_SERIAL_SERVICE) ||
+               uuid.equals(SampleGattAttributes.CUSTOM_SERVICE) ||
+               uuid.equals(SampleGattAttributes.MD_RX_TX) ||
+               uuid.equals(SampleGattAttributes.ETOH_RX_TX);
     }
 
     /**
