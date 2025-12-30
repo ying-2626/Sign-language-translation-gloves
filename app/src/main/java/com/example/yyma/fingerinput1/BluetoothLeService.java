@@ -37,17 +37,17 @@ public class BluetoothLeService extends Service {
     public final static String EXTRA_DATA =
             "bluetooth.le.EXTRA_DATA";
 
-    public final static UUID UUID_SOFT_SERIAL_SERVICE = UUID.fromString(SampleGattAttributes.SOFT_SERIAL_SERVICE);
-    public final static UUID UUID_SPP_SERIAL_SERVICE = UUID.fromString(SampleGattAttributes.SPP_SERIAL_SERVICE); // 添加标准SPP服务UUID
-    public final static UUID UUID_CUSTOM_SERVICE = UUID.fromString(SampleGattAttributes.CUSTOM_SERVICE); // 您设备的实际服务UUID
-    public final static UUID UUID_CUSTOM_CHARACTERISTIC = UUID.fromString(SampleGattAttributes.CUSTOM_CHARACTERISTIC); // 您设备的实际特征值UUID
+    // 标准SPP服务UUID - 用于串口通信
+    public final static UUID UUID_SPP_SERIAL_SERVICE = UUID.fromString(SampleGattAttributes.SPP_SERIAL_SERVICE); // 00001101-0000-1000-8000-00805F9B34FB
+    // Microduino服务UUID - 一种常用的串口服务
+    public final static UUID UUID_SOFT_SERIAL_SERVICE = UUID.fromString(SampleGattAttributes.SOFT_SERIAL_SERVICE); // 0000fff0-0000-1000-8000-00805F9B34FB
+    // 其他常见串口服务
     public final static UUID UUID_MD_RX_TX = UUID.fromString(SampleGattAttributes.MD_RX_TX);
     public final static UUID UUID_ETOH_RX_TX = UUID.fromString(SampleGattAttributes.ETOH_RX_TX);
 
     private static final int STATE_DISCONNECTED = 0;
     private static final int STATE_CONNECTING = 1;
     private static final int STATE_CONNECTED = 2;
-
 
     static final byte[] DISABLE = {0x00};
     static final byte[] ENABLE = {0x01};
@@ -59,10 +59,7 @@ public class BluetoothLeService extends Service {
     private BluetoothGatt mBluetoothGatt;
     private int mConnectionState = STATE_DISCONNECTED;
 
-    // Implements callback methods for GATT events that the app cares about.  For example,
-    // connection change and services discovered.
-
-
+    // GATT回调接口 - 处理各种蓝牙事件
     private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
@@ -72,7 +69,9 @@ public class BluetoothLeService extends Service {
                 mConnectionState = STATE_CONNECTED;
                 broadcastUpdate(intentAction);
                 Log.i(TAG, "Connected to GATT server.");
-                // Attempts to discover services after successful connection.
+                
+                // 连接成功后，开始发现服务 - 这是关键步骤
+                // 设备会返回它支持的所有服务列表
                 Log.i(TAG, "Attempting to start service discovery:" +
                         mBluetoothGatt.discoverServices());
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -86,6 +85,12 @@ public class BluetoothLeService extends Service {
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                // 服务发现成功！现在我们可以查看设备提供的所有服务
+                Log.i(TAG, "Services discovered successfully. Starting to analyze services...");
+                
+                // 打印所有发现的服务及其特征值
+                logAllServicesAndCharacteristics();
+                
                 broadcastUpdate(ACTION_GATT_SERVICES_DISCOVERED);
             } else {
                 Log.w(TAG, "onServicesDiscovered received: " + status);
@@ -141,6 +146,57 @@ public class BluetoothLeService extends Service {
             }
         }
     };
+
+    // 记录所有服务和特征值的日志，帮助理解设备结构
+    private void logAllServicesAndCharacteristics() {
+        List<BluetoothGattService> services = getSupportedGattServices();
+        if (services == null) {
+            Log.w(TAG, "No services available.");
+            return;
+        }
+
+        Log.i(TAG, "=== DEVICE SERVICES ANALYSIS ===");
+        for (BluetoothGattService service : services) {
+            UUID serviceUUID = service.getUuid();
+            String serviceName = SampleGattAttributes.lookup(serviceUUID.toString(), "Unknown Service");
+            Log.i(TAG, "Service: " + serviceUUID.toString() + " (" + serviceName + ")");
+
+            // 遍历该服务下的所有特征值
+            List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
+            for (BluetoothGattCharacteristic characteristic : characteristics) {
+                UUID charUUID = characteristic.getUuid();
+                String charName = SampleGattAttributes.lookup(charUUID.toString(), "Unknown Characteristic");
+                int properties = characteristic.getProperties();
+                
+                // 分析特征值的属性
+                String propDesc = analyzeCharacteristicProperties(properties);
+                
+                Log.i(TAG, "  -> Char: " + charUUID.toString() + " (" + charName + ")");
+                Log.i(TAG, "     Properties: " + propDesc);
+                
+                // 检查描述符
+                List<BluetoothGattDescriptor> descriptors = characteristic.getDescriptors();
+                for (BluetoothGattDescriptor descriptor : descriptors) {
+                    Log.i(TAG, "     Descriptor: " + descriptor.getUuid().toString());
+                }
+            }
+        }
+        Log.i(TAG, "=== END DEVICE SERVICES ANALYSIS ===");
+    }
+
+    // 分析特征值属性
+    private String analyzeCharacteristicProperties(int properties) {
+        StringBuilder sb = new StringBuilder();
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0) sb.append("READ ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) sb.append("WRITE ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) sb.append("WRITE_NR ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) sb.append("NOTIFY ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) sb.append("INDICATE ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_BROADCAST) != 0) sb.append("BROADCAST ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE) != 0) sb.append("SIGNED_WRITE ");
+        if ((properties & BluetoothGattCharacteristic.PROPERTY_EXTENDED_PROPS) != 0) sb.append("EXTENDED ");
+        return sb.toString().trim();
+    }
 
     private void broadcastUpdate(final String action) {
         final Intent intent = new Intent(action);
@@ -317,20 +373,39 @@ public class BluetoothLeService extends Service {
         }
         mBluetoothGatt.setCharacteristicNotification(characteristic, enabled);
 
-        // This is specific to RX_TX.
-        if (UUID_MD_RX_TX.equals(characteristic.getUuid())
-                || UUID_ETOH_RX_TX.equals(characteristic.getUuid())
-                || UUID_CUSTOM_CHARACTERISTIC.equals(characteristic.getUuid())) { // 添加对自定义特征值的支持
+        // 为串口通信特征值启用通知
+        if (UUID_SPP_SERIAL_SERVICE.equals(characteristic.getService().getUuid()) ||
+            UUID_SOFT_SERIAL_SERVICE.equals(characteristic.getService().getUuid()) ||
+            UUID_MD_RX_TX.equals(characteristic.getUuid()) ||
+            UUID_ETOH_RX_TX.equals(characteristic.getUuid()) ||
+            isReadableOrWritableCharacteristic(characteristic)) {
+            
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(
                     UUID.fromString(SampleGattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
             // 检查descriptor是否为null
             if (descriptor != null) {
-                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                // 启用通知 - 这是接收实时数据的关键
+                descriptor.setValue(enabled ? 
+                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE : 
+                    BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE);
                 mBluetoothGatt.writeDescriptor(descriptor);
             } else {
                 Log.w(TAG, "Descriptor is null for characteristic: " + characteristic.getUuid().toString());
             }
         }
+    }
+
+    /**
+     * 检查特征值是否是可读或可写的串口特征值
+     * @param characteristic 特征值
+     * @return 是否为串口特征值
+     */
+    private boolean isReadableOrWritableCharacteristic(BluetoothGattCharacteristic characteristic) {
+        int properties = characteristic.getProperties();
+        return (properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0 ||
+               (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
+               (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0 ||
+               (properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0;
     }
 
     /**
@@ -351,62 +426,88 @@ public class BluetoothLeService extends Service {
         }
     }
 
+    /**
+     * 尝试获取适合串口通信的服务
+     * 这是软硬件协同的关键环节
+     */
     public BluetoothGattService getSoftSerialService() {
-        // 首先尝试查找自定义服务
-        BluetoothGattService _service = mBluetoothGatt.getService(UUID_SOFT_SERIAL_SERVICE);
-        if (_service == null) {
-            // 如果找不到自定义服务，尝试查找标准SPP服务
-            Log.d(TAG, "Soft Serial Service not found, trying SPP service...");
-            _service = mBluetoothGatt.getService(UUID_SPP_SERIAL_SERVICE);
-            if (_service == null) {
-                // 如果标准SPP服务也找不到，尝试查找您设备的自定义服务
-                Log.d(TAG, "SPP Serial Service not found, trying custom service...");
-                _service = mBluetoothGatt.getService(UUID_CUSTOM_SERVICE);
-                if (_service == null) {
-                    Log.d(TAG, "Custom Serial Service not found!");
-                    // 如果所有预定义服务都找不到，尝试遍历所有服务查找任何可能的串口服务
-                    List<BluetoothGattService> services = getSupportedGattServices();
-                    if (services != null) {
-                        Log.d(TAG, "Available services:");
-                        for (BluetoothGattService service : services) {
-                            Log.d(TAG, "- Service UUID: " + service.getUuid().toString());
-                            List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
-                            for (BluetoothGattCharacteristic characteristic : characteristics) {
-                                Log.d(TAG, "  Characteristic UUID: " + characteristic.getUuid().toString());
-                            }
-                        }
-                    }
-                    return null;
-                } else {
-                    Log.d(TAG, "Custom Serial Service found!");
-                }
-            } else {
-                Log.d(TAG, "SPP Serial Service found!");
-            }
-        } else {
-            Log.d(TAG, "Soft Serial Service found!");
+        Log.d(TAG, "Starting service discovery process...");
+        
+        // 1. 首先尝试查找标准SPP服务 (最通用的串口服务)
+        BluetoothGattService _service = mBluetoothGatt.getService(UUID_SPP_SERIAL_SERVICE);
+        if (_service != null) {
+            Log.d(TAG, "Found standard SPP Serial Service: " + UUID_SPP_SERIAL_SERVICE.toString());
+            return _service;
         }
-        return _service;
+        
+        // 2. 尝试查找Microduino服务 (另一种常用串口服务)
+        _service = mBluetoothGatt.getService(UUID_SOFT_SERIAL_SERVICE);
+        if (_service != null) {
+            Log.d(TAG, "Found Soft Serial Service: " + UUID_SOFT_SERIAL_SERVICE.toString());
+            return _service;
+        }
+        
+        // 3. 如果标准服务都找不到，遍历所有服务查找可能的串口服务
+        List<BluetoothGattService> services = getSupportedGattServices();
+        if (services != null) {
+            Log.d(TAG, "Analyzing all available services for serial communication capability...");
+            
+            for (BluetoothGattService service : services) {
+                Log.d(TAG, "Checking service: " + service.getUuid().toString());
+                
+                // 检查该服务是否有适合串口通信的特征值
+                List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
+                for (BluetoothGattCharacteristic characteristic : characteristics) {
+                    Log.d(TAG, "  Checking characteristic: " + characteristic.getUuid().toString() + 
+                          ", Properties: " + analyzeCharacteristicProperties(characteristic.getProperties()));
+                    
+                    // 查找具有读写和通知能力的特征值 - 这是串口通信的关键
+                    if (isReadableOrWritableCharacteristic(characteristic)) {
+                        Log.d(TAG, "Found potential serial service: " + service.getUuid().toString());
+                        return service; // 返回第一个有合适特征值的服务
+                    }
+                }
+            }
+        }
+        
+        Log.d(TAG, "No suitable serial service found!");
+        return null;
     }
 
-//    public void enableSoftSerialService(boolean enable) {
-//        BluetoothGattService _service = mBluetoothGatt.getService(UUID_SOFT_SERIAL_SERVICE);
-//        if (_service == null) {
-//            Log.d(TAG, "Soft Serial Service not found!");
-//            return;
-//        }
-//
-//        Log.d(TAG, "Soft Serial Service found!");
-//
-//        BluetoothGattCharacteristic _nc = _service.getCharacteristic(UUID_HM_RX_TX);
-//        if (_nc != null) {
-//            if (enable)
-//                _nc.setValue(ENABLE);
-//            else
-//                _nc.setValue(DISABLE);
-//            mBluetoothGatt.writeCharacteristic(_nc);
-//        }
-//
-//        Log.d(TAG, "RX TX ready!");
-//    }
+    /**
+     * 获取串口通信用的特征值
+     * 这是实际进行数据收发的地方
+     */
+    public BluetoothGattCharacteristic getSerialCharacteristic(BluetoothGattService service) {
+        if (service == null) {
+            Log.e(TAG, "Service is null, cannot get characteristic");
+            return null;
+        }
+        
+        List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
+        if (characteristics == null || characteristics.isEmpty()) {
+            Log.e(TAG, "Service has no characteristics");
+            return null;
+        }
+        
+        // 优先查找标准串口特征值
+        for (BluetoothGattCharacteristic characteristic : characteristics) {
+            UUID uuid = characteristic.getUuid();
+            if (UUID_MD_RX_TX.equals(uuid) || UUID_ETOH_RX_TX.equals(uuid)) {
+                Log.d(TAG, "Found standard serial characteristic: " + uuid.toString());
+                return characteristic;
+            }
+        }
+        
+        // 否则返回第一个适合串口通信的特征值
+        for (BluetoothGattCharacteristic characteristic : characteristics) {
+            if (isReadableOrWritableCharacteristic(characteristic)) {
+                Log.d(TAG, "Using generic serial characteristic: " + characteristic.getUuid().toString());
+                return characteristic;
+            }
+        }
+        
+        Log.e(TAG, "No suitable serial characteristic found in service");
+        return null;
+    }
 }

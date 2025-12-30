@@ -123,50 +123,39 @@ public class ReceiveActivity extends Activity {
                 updateConnectionState("等待连接……");
                 invalidateOptionsMenu();
             } else if (BluetoothLeService.ACTION_GATT_SERVICES_DISCOVERED.equals(action)) {
+                Log.d(TAG, "Service discovery completed, now finding serial communication service...");
+                
+                // 动态查找可用的服务和特征值
                 BluetoothGattService gattService = mBluetoothLeService.getSoftSerialService();
                 if (gattService == null) {
-                    Toast.makeText(ReceiveActivity.this, "没有串口设备", Toast.LENGTH_SHORT).show();
-                    // 尝试直接从所有服务中查找可能的特征值
-                    findAndUseFirstAvailableCharacteristic();
+                    Log.e(TAG, "No suitable serial service found on the device");
+                    Toast.makeText(ReceiveActivity.this, "没有找到串口服务", Toast.LENGTH_SHORT).show();
+                    // 尝试从所有服务中查找可用的特征值
+                    findAnyUsableCharacteristic();
                     return;
                 }
 
-                // 尝试获取不同类型的特征值
-                if(mDeviceName != null && mDeviceName.startsWith("Microduino")) {
-                    characteristicTX = gattService.getCharacteristic(BluetoothLeService.UUID_MD_RX_TX);
-                }else if(mDeviceName != null && mDeviceName.startsWith("EtOH")) {
-                    characteristicTX = gattService.getCharacteristic(BluetoothLeService.UUID_ETOH_RX_TX);
-                } else {
-                    // 尝试获取您设备的自定义特征值
-                    characteristicTX = gattService.getCharacteristic(BluetoothLeService.UUID_CUSTOM_CHARACTERISTIC);
+                // 获取串口通信的特征值
+                BluetoothGattCharacteristic serialCharacteristic = mBluetoothLeService.getSerialCharacteristic(gattService);
+                if (serialCharacteristic == null) {
+                    Log.e(TAG, "No suitable serial characteristic found in the service");
+                    Toast.makeText(ReceiveActivity.this, "未找到可用的通信特征值", Toast.LENGTH_SHORT).show();
+                    return;
                 }
-                
-                // 如果上述特征值为空，尝试使用标准SPP特征值
-                if (characteristicTX == null) {
-                    // 尝试查找任何可用的特征值
-                    List<BluetoothGattCharacteristic> characteristics = gattService.getCharacteristics();
-                    if (characteristics != null && !characteristics.isEmpty()) {
-                        // 使用第一个可用的特征值
-                        characteristicTX = characteristics.get(0);
-                        Log.d(TAG, "Using first available characteristic: " + characteristicTX.getUuid().toString());
-                    }
-                }
-                
-                characteristicRX = characteristicTX;
+
+                // 设置全局变量用于后续通信
+                characteristicTX = serialCharacteristic;
+                characteristicRX = serialCharacteristic;
 
                 if (characteristicTX != null) {
-                    // 在设置通知前检查特征值是否有效
-                    if (characteristicTX != null) {
-                        mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-                        isSerial.setText("连接就绪");
-                        updateReadyState(0);
-                    } else {
-                        isSerial.setText("连接失败");
-                        Toast.makeText(ReceiveActivity.this, "特征值无效", Toast.LENGTH_SHORT).show();
-                    }
+                    Log.d(TAG, "Setting up notification for characteristic: " + characteristicTX.getUuid().toString());
+                    // 启用通知，这样当设备发送数据时，我们能立即收到
+                    mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                    isSerial.setText("连接就绪 - 服务: " + gattService.getUuid().toString());
+                    updateReadyState(0);
                 } else {
                     isSerial.setText("连接失败");
-                    Toast.makeText(ReceiveActivity.this, "未找到可用的通信特征值", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ReceiveActivity.this, "特征值无效", Toast.LENGTH_SHORT).show();
                 }
 
             } else if (BluetoothLeService.ACTION_DATA_AVAILABLE.equals(action)) {
@@ -252,59 +241,48 @@ public class ReceiveActivity extends Activity {
                 }
             }
         }
-        
+
         /**
-         * 当无法找到标准服务时，尝试直接从所有服务中查找可用的特征值
+         * 当无法找到标准服务时，尝试从所有服务中查找可用的特征值
          */
-        private void findAndUseFirstAvailableCharacteristic() {
+        private void findAnyUsableCharacteristic() {
             List<BluetoothGattService> services = mBluetoothLeService.getSupportedGattServices();
             if (services == null || services.isEmpty()) {
                 Log.d(TAG, "No services found");
                 return;
             }
-            
-            Log.d(TAG, "Searching for any usable characteristic...");
-            
-            // 首先尝试查找您设备的自定义服务和特征值
-            for (BluetoothGattService service : services) {
-                if (BluetoothLeService.UUID_CUSTOM_SERVICE.equals(service.getUuid())) {
-                    List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
-                    if (characteristics != null && !characteristics.isEmpty()) {
-                        // 使用找到的自定义特征值
-                        characteristicTX = characteristics.get(0);
-                        characteristicRX = characteristicTX;
-                        Log.d(TAG, "Found custom characteristic: " + characteristicTX.getUuid().toString());
-                        
-                        // 设置通知
-                        if (characteristicTX != null) {
-                            mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-                            isSerial.setText("连接就绪");
-                            updateReadyState(0);
-                        }
-                        return;
-                    }
-                }
-            }
-            
-            // 如果找不到自定义服务，继续查找其他可用特征值
+
+            Log.d(TAG, "Searching for any usable characteristic in all services...");
+
+            // 遍历所有服务查找可用的特征值
             for (BluetoothGattService service : services) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
                 if (characteristics != null && !characteristics.isEmpty()) {
-                    // 使用找到的第一个特征值
-                    characteristicTX = characteristics.get(0);
-                    characteristicRX = characteristicTX;
-                    Log.d(TAG, "Found characteristic: " + characteristicTX.getUuid().toString());
-                    
-                    // 设置通知
-                    if (characteristicTX != null) {
-                        mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
-                        isSerial.setText("连接就绪");
-                        updateReadyState(0);
+                    // 尝试找到合适的特征值
+                    for (BluetoothGattCharacteristic characteristic : characteristics) {
+                        int properties = characteristic.getProperties();
+                        if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0 ||
+                            (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0 ||
+                            (properties & BluetoothGattCharacteristic.PROPERTY_READ) != 0 ||
+                            (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
+                            (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                            // 找到了可能的串口通信特征值
+                            characteristicTX = characteristic;
+                            characteristicRX = characteristicTX;
+                            Log.d(TAG, "Found usable characteristic: " + characteristicTX.getUuid().toString());
+
+                            // 设置通知
+                            if (characteristicTX != null) {
+                                mBluetoothLeService.setCharacteristicNotification(characteristicTX, true);
+                                isSerial.setText("连接就绪 - 服务: " + service.getUuid().toString());
+                                updateReadyState(0);
+                            }
+                            return;
+                        }
                     }
-                    return;
                 }
             }
-            
+
             // 如果还是找不到特征值
             isSerial.setText("连接失败");
             Toast.makeText(ReceiveActivity.this, "未找到任何可用的特征值", Toast.LENGTH_SHORT).show();
